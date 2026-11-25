@@ -1,0 +1,19 @@
+{
+  "name": "열두 띠 수호대",
+  "short_name": "열두 띠",
+  "description": "열두 띠 동물을 소환하고 합성해 흑묘 대왕을 막는 랜덤 합성 디펜스",
+  "lang": "ko",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#110e1a",
+  "theme_color": "#110e1a",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
