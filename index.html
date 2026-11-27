@@ -10,7 +10,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>열두 띠 수호대</title>
+<title>열두간지 수호대</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Noto+Sans+KR:wght@400;700&display=swap">
 <style>
@@ -86,8 +86,17 @@ button:disabled{opacity:.45;cursor:default;transform:none}
 .summon small{font:700 14px var(--body);background:#0003;border-radius:99px;padding:2px 10px;color:#ffe9a8}
 .side{display:flex;gap:8px;flex:0 1 auto}
 .primary{background:var(--gold);color:#2a1a00;border:0;min-width:140px}
-.up{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px clamp(12px,3vw,20px)}
-.up h3{font:400 22px/1.1 var(--disp);margin:0 0 2px}
+/* upgrades live in a bottom sheet opened from the 띠 강화 button; the battle pauses while it is open */
+.upbtn{position:relative;flex:1 1 100%;background:linear-gradient(180deg,#3a2a14,#2a1d0e);border-color:#f2c14e88;color:var(--gold);font:400 20px var(--disp)}
+.upn{position:absolute;top:-7px;right:-4px;min-width:22px;height:22px;border-radius:99px;background:#e0453a;color:#fff;font:700 12.5px/22px var(--body);padding:0 6px;box-shadow:0 0 0 2px var(--bg)}
+.upn:empty{display:none}
+/* the sheet only covers the lower part of the screen: the battlefield above it stays visible and playable */
+.up{position:fixed;left:0;right:0;bottom:0;z-index:41;margin:0 auto;max-width:780px;max-height:46vh;max-height:46dvh;overflow:auto;overscroll-behavior:contain;background:rgba(27,22,38,.97);border:1px solid #f2c14e66;border-bottom:0;border-radius:20px 20px 0 0;padding:0 clamp(12px,3vw,20px) max(16px,env(safe-area-inset-bottom,0px));box-shadow:0 -10px 30px #000a}
+body.upopen .wrap{padding-bottom:50vh}
+body:not(.upopen) .up{display:none}
+.uphead{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;background:var(--panel);padding:14px 0 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.up h3{font:400 22px/1.1 var(--disp);margin:0}
+.upg{margin-left:auto;color:var(--mute);font-size:14px}.upg b{color:var(--gold);font:400 20px var(--disp)}
 .up .sub{color:var(--mute);font-size:13.5px;margin:0 0 10px}
 .ups{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .ut{border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:grid;gap:4px;background:#150f1e;border-top:3px solid var(--c)}
@@ -128,7 +137,7 @@ button{touch-action:manipulation}
 
 <div class="wrap">
   <header class="top">
-    <h1>열두 띠 <span>수호대</span></h1>
+    <h1>열두간지 <span>수호대</span></h1>
     <div class="hud">
       <div><b id="hStage">1장</b><small>모험</small></div>
       <div><b id="hWave">0/6</b><small>웨이브</small></div>
@@ -153,11 +162,16 @@ button{touch-action:manipulation}
       <button id="pause">일시정지</button>
       <button id="restart">새 모험</button>
     </div>
+    <button class="upbtn" id="upOpen" aria-haspopup="dialog">⬆ 띠 강화 <span class="upn" id="upN"></span></button>
   </div>
 
-  <section class="up" aria-label="띠 강화">
-    <h3>열두 띠 · 강화</h3>
-    <p class="sub">신패를 되찾을 때마다 새 띠가 합류해요. 강화하면 그 띠 전체가 영구히 강해져요 (레벨마다 피해 +20%).</p>
+  <section class="up" id="upSheet" role="dialog" aria-label="띠 강화">
+    <div class="uphead">
+      <h3>열두간지 · 강화</h3>
+      <span class="upg">엽전 <b id="upGold">0</b>냥</span>
+      <button id="upClose" aria-label="강화 창 닫기">닫기</button>
+    </div>
+    <p class="sub">강화하면 그 띠 전체가 영구히 강해져요 (레벨마다 피해 +20%). 창을 연 채로도 전투는 계속되고, 위쪽 전장에서 동물을 옮기거나 합성할 수 있어요.</p>
     <div class="ups" id="ups"></div>
   </section>
   <p class="help">동물을 끌어서 <b>같은 띠·같은 등급</b> 위에 놓으면 합성돼요 (새끼 → 꼬마 → 청년 → 용사 → 장군 → 대장군 → 수호신). 빈 칸에 놓으면 이동, 다른 동물 위면 자리 바꾸기, 끄는 동안 위쪽에 나타나는 판매 칸에 놓으면 엽전으로 돌려받아요. 끄는 동안 놓을 자리 옆에 육합 단짝(♥)이나 상충(⚡)이 있으면 미리 표시돼요. 한 장(章)은 웨이브 6개이고, 마지막 웨이브에 보스가 나와요.</p>
@@ -993,6 +1007,7 @@ function hud(force){
   const c=costOf(),blocked=g.state==='story'||g.over;set('cost',`${c}냥`);set('summon',blocked||g.gold<c,'disabled');
   g.unlocked.forEach(t=>{const mx=g.lv[t]>=10;set('lv'+t,`Lv.${g.lv[t]}`);set('ub'+t,mx?'최대':`강화 ${upCost(t)}냥`);set('ub'+t,blocked||mx||g.gold<upCost(t),'disabled')});
   set('pause',g.paused?'계속':'일시정지');
+  set('upGold',Math.floor(g.gold));set('upN',blocked?'':String(g.unlocked.filter(t=>g.lv[t]<10&&g.gold>=upCost(t)).length||''));
   const s=stg(),nb=g.sw+1===WPS&&!end;
   set('sMain',g.over?'신단 함락':g.state==='story'?`${s.n}`:g.state==='wait'?`${s.n} · 다음 웨이브까지 ${Math.ceil(g.timer)}초${nb?` · ${BOSS[s.boss].n} 출현 예정!`:''}`:`${s.n} · 웨이브 ${g.sw} · 남은 적 ${g.queue.length+g.enemies.length}`);
   let info=`합류한 띠 ${g.unlocked.length}/12 · 이번 길 ${route.len}칸, 꺾임 ${route.turns}번`;
@@ -1006,7 +1021,7 @@ function hud(force){
     $('syn').innerHTML=TRIO.map((T,k)=>`<span class="${g.tri[k]?'on':'off'}" style="--c:${T.c}"><b>${T.h} ${T.n}</b> ${T.m.map(t=>on.has(t)?TYPES[t].n:`<s>${TYPES[t].n}</s>`).join('·')}${g.tri[k]?' · '+T.d:''}</span>`).join('')
       +`<span style="--c:#ff6f9a"><b>♥ 육합</b> ${np}쌍 · 이웃하면 +25%</span><span style="--c:#ff5a4a"><b>⚡ 상충</b> ${nc}쌍 · 이웃하면 -20%</span>`}
 }
-function card(html){$('cardIn').innerHTML=html;$('card').hidden=false;const st=$('stage');st.classList.add('cardmode');document.body.classList.add('storymode');
+function card(html){document.body.classList.remove('upopen');$('cardIn').innerHTML=html;$('card').hidden=false;const st=$('stage');st.classList.add('cardmode');document.body.classList.add('storymode');
   if(st.getBoundingClientRect().top<0)st.scrollIntoView({block:'start'})}
 function closeCard(){$('card').hidden=true;const st=$('stage');st.classList.remove('cardmode');document.body.classList.remove('storymode');resize();
   if(st.getBoundingClientRect().top<0)st.scrollIntoView({block:'start'})}
@@ -1050,7 +1065,7 @@ function titleScene(){
   requestAnimationFrame(fr);return c}
 function intro(){
   const bt=best.st>=STAGES.length?'최고 기록 · 흑묘 대왕 격파':best.st||best.w?`최고 기록 · ${best.st+1}장 ${STAGES[best.st].n} 웨이브 ${best.w}`:'';
-  card(`<div class="tbox" id="titleBox"></div><h2 class="ttl">열두 띠 <span>수호대</span></h2>
+  card(`<div class="tbox" id="titleBox"></div><h2 class="ttl">열두간지 <span>수호대</span></h2>
   <p class="tag">달밤에 사라진 십이지 신패.<br>열두 띠가 다시 달린다!</p>
   <button class="primary big" id="toPro">모험 떠나기</button>${bt?`<p class="best">${bt}</p>`:''}`);
   $('titleBox').appendChild(titleScene());
@@ -1089,7 +1104,16 @@ $('speed').addEventListener('click',()=>{speed=speed===1?2:speed===2?3:1;$('spee
 $('pause').addEventListener('click',()=>{if(g.state==='story'||g.over)return;g.paused=!g.paused;hud()});
 $('restart').addEventListener('click',()=>{if(g.state==='story'||g.over){newGame();intro();return}
   g.paused=true;hud();card(`<h2>새 모험</h2><p>지금 모험을 버리고 프롤로그부터 다시 시작할까요?</p><div class="row"><button class="primary" id="yes">새로 시작</button><button id="no">계속하기</button></div>`)});
-document.addEventListener('keydown',e=>{if(e.target.tagName==='BUTTON'&&(e.key===' '||e.key==='Enter'))return;if(e.key===' '){e.preventDefault();summon()}});
+/* upgrade sheet: floats over the lower screen while the battle keeps running above it */
+function openUps(){if(g.state==='story'||g.over||document.body.classList.contains('upopen'))return;
+  document.body.classList.add('upopen');$('upSheet').scrollTop=0;hud(true);
+  const st=$('stage'),r=st.getBoundingClientRect(),room=innerHeight-$('upSheet').offsetHeight;
+  if(r.top<0||r.bottom>room)scrollTo({top:scrollY+r.top-Math.max(0,Math.min(8,room-r.height))})}
+function closeUps(){if(!document.body.classList.contains('upopen'))return;document.body.classList.remove('upopen');$('upOpen').focus()}
+$('upOpen').addEventListener('click',openUps);
+$('upClose').addEventListener('click',closeUps);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')return closeUps();
+  if(e.target.tagName==='BUTTON'&&(e.key===' '||e.key==='Enter'))return;if(e.key===' '){e.preventDefault();summon()}});
 
 let last=performance.now();
 function loop(now){
