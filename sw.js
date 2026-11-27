@@ -1,5 +1,5 @@
 // Offline support: the game files are stored on install; when online, the page is refreshed from the network so updates arrive.
-const VERSION = 'zodiac-20261127112020';
+const VERSION = 'zodiac-20261127200954';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

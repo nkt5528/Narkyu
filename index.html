@@ -342,20 +342,59 @@ const SFX=(()=>{
       out=ac.createDynamicsCompressor();out.connect(ac.destination);
       noiseBuf=ac.createBuffer(1,ac.sampleRate*.5,ac.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}
     if(ac.state==='suspended')ac.resume();return ac}
-  function tone(f,dur,o={}){const t=ac.currentTime+(o.delay||0),os=ac.createOscillator(),gn=ac.createGain();
-    os.type=o.type||'sine';os.frequency.setValueAtTime(f,t);if(o.slide)os.frequency.exponentialRampToValueAtTime(Math.max(30,f*o.slide),t+dur);
-    gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(o.vol||.2,t+(o.att||.006));gn.gain.exponentialRampToValueAtTime(.0008,t+dur);
-    os.connect(gn).connect(out);os.start(t);os.stop(t+dur+.03)}
+  /* one oscillator note; options: to/slide (pitch glide), vib+vr (vibrato), trem (tremolo Hz), lp+q (lowpass), det (detune), att, sus (held part) */
+  function tone(f,dur,o={}){const t=ac.currentTime+(o.delay||0),os=ac.createOscillator(),gn=ac.createGain(),end=t+dur+.05,vol=o.vol||.2;
+    os.type=o.type||'sine';os.frequency.setValueAtTime(f,t);
+    if(o.to)os.frequency.exponentialRampToValueAtTime(Math.max(30,o.to),t+dur);else if(o.slide)os.frequency.exponentialRampToValueAtTime(Math.max(30,f*o.slide),t+dur);
+    if(o.det)os.detune.value=o.det;
+    if(o.vib){const l=ac.createOscillator(),lg=ac.createGain();l.frequency.value=o.vr||6;lg.gain.value=f*o.vib;l.connect(lg).connect(os.frequency);l.start(t);l.stop(end)}
+    let node=os;
+    if(o.lp){const fl=ac.createBiquadFilter();fl.type='lowpass';fl.frequency.value=o.lp;fl.Q.value=o.q||1;node.connect(fl);node=fl}
+    if(o.trem){const l=ac.createOscillator(),lg=ac.createGain(),tg=ac.createGain();l.frequency.value=o.trem;lg.gain.value=.5;tg.gain.value=.5;l.connect(lg).connect(tg.gain);node.connect(tg);node=tg;l.start(t);l.stop(end)}
+    const att=o.att||.006;gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(vol,t+att);
+    if(o.sus)gn.gain.setValueAtTime(vol,t+Math.max(att,dur*o.sus));gn.gain.exponentialRampToValueAtTime(.0008,t+dur);
+    node.connect(gn).connect(out);os.start(t);os.stop(end)}
   function noise(dur,o={}){const t=ac.currentTime+(o.delay||0),s=ac.createBufferSource(),f=ac.createBiquadFilter(),gn=ac.createGain();
     s.buffer=noiseBuf;f.type=o.ft||'bandpass';f.frequency.setValueAtTime(o.f||1200,t);if(o.fs)f.frequency.exponentialRampToValueAtTime(o.fs,t+dur);f.Q.value=o.q||1;
     gn.gain.setValueAtTime(o.vol||.2,t);gn.gain.exponentialRampToValueAtTime(.0008,t+dur);s.connect(f).connect(gn).connect(out);s.start(t);s.stop(t+dur+.03)}
   const N=s=>440*Math.pow(2,(s-9)/12);   // semitones from C4
+  const st=(f,s)=>f*Math.pow(2,s/12);
+  /* each animal's own call. T = note, Z = noise; both are scaled by grade inside voice() */
+  const VOICE=[
+    (T,Z)=>{T(2000,.07,{to:2800,vol:.12});T(2200,.08,{to:3200,vol:.12,delay:.09});T(2600,.06,{to:3400,vol:.1,delay:.17})},                 // 쥐: squeak-squeak
+    (T,Z)=>T(140,.7,{type:'sawtooth',to:105,lp:700,vib:.03,vr:5,vol:.3,att:.08,sus:.5}),                                                   // 소: moo
+    (T,Z)=>{T(110,.55,{type:'sawtooth',to:72,lp:900,vib:.08,vr:28,vol:.3,att:.03});Z(.5,{ft:'lowpass',f:900,fs:200,vol:.25})},             // 호랑이: growl
+    (T,Z)=>[0,4,7].forEach((s,i)=>T(st(880,s),.09,{type:'triangle',to:st(880,s)*1.3,vol:.16,delay:i*.08})),                                // 토끼: hop hop hop
+    (T,Z)=>{T(220,.6,{type:'square',to:440,lp:1500,det:8,vol:.12,att:.05});T(330,.6,{type:'sawtooth',to:660,lp:1500,vol:.08,att:.05});Z(.6,{f:2500,fs:500,vol:.12,delay:.1})}, // 용: rising roar + fire
+    (T,Z)=>{Z(.55,{ft:'highpass',f:5000,vol:.16});T(600,.3,{to:400,vol:.05,vib:.05,vr:12})},                                                // 뱀: hiss
+    (T,Z)=>{T(900,.5,{type:'triangle',to:520,vib:.12,vr:16,vol:.18});Z(.04,{f:1500,q:4,vol:.25,delay:.5});Z(.04,{f:1200,q:4,vol:.25,delay:.62})}, // 말: neigh + clop clop
+    (T,Z)=>T(420,.45,{type:'square',to:390,lp:2000,trem:22,vol:.14,att:.03,sus:.6}),                                                        // 양: baa
+    (T,Z)=>{T(500,.1,{to:950,vol:.18});T(520,.1,{to:1000,vol:.18,delay:.13});T(560,.14,{to:1150,vol:.18,delay:.26})},                       // 원숭이: ook ook eek
+    (T,Z)=>[0,0,2,7].forEach((s,i)=>T(st(660,s),i===3?.3:.07,{type:'square',lp:2500,to:i===3?st(660,9):0,vol:.1,delay:i*.09})),            // 닭: cluck-cluck-cock-a-doo
+    (T,Z)=>[0,.16].forEach(d=>{T(380,.11,{type:'sawtooth',to:240,lp:1400,vol:.22,delay:d});Z(.07,{f:900,vol:.15,delay:d})}),                // 개: woof woof
+    (T,Z)=>[0,.2].forEach(d=>T(210,.16,{type:'sawtooth',to:170,lp:800,q:6,vib:.1,vr:30,vol:.25,delay:d}))                                  // 돼지: oink oink
+  ];
+  const KEY=[1047,262,196,880,330,698,587,392,523,659,392,262];                       // each animal's home note, for the top-grade fanfare
+  const SHOT=[['square',1600],['sawtooth',160],['sawtooth',200],['triangle',1000],['square',300],['sine',1400],['triangle',700],['square',500],['sine',900],['square',1100],['sawtooth',400],['sawtooth',250]];
+  /* grade 1..7: deeper and longer as the animal grows; 3+ adds a low double, 5+ an echo, 6+ sparkle, 7 a fanfare and a boom */
+  function voice(t,gr,soft){
+    const p={f:Math.pow(.93,gr-1),d:1+.08*(gr-1),v:(soft?.55:1)*(.75+.08*gr),dl:0};
+    const T=(f,dur,o={})=>tone(f*p.f,dur*p.d,{...o,to:o.to?o.to*p.f:0,vol:(o.vol||.2)*p.v,delay:(o.delay||0)*p.d+p.dl});
+    const Z=(dur,o={})=>noise(dur*p.d,{...o,vol:(o.vol||.2)*p.v,delay:(o.delay||0)*p.d+p.dl});
+    const run=ch=>{const keep={...p};Object.assign(p,ch);VOICE[t](T,Z);Object.assign(p,keep)};
+    run({});
+    if(gr>=3)run({f:p.f*.5,v:p.v*(gr>=4?.5:.35)});
+    if(gr>=5)run({dl:.24*p.d,v:p.v*.35});
+    if(soft)return;
+    if(gr>=6)noise(.7,{f:7000,q:3,vol:.05,delay:.1});
+    if(gr>=7){[0,4,7,12].forEach((s,i)=>tone(st(KEY[t],s)*(KEY[t]>600?.5:1),.6,{type:'triangle',vol:.09,delay:.4+i*.08}));tone(60,.9,{vol:.32,to:35,delay:.05})}
+  }
   const S={
+    voice,
+    shoot:(t,gr)=>{const[ty,f]=SHOT[t]||SHOT[0];tone(f*(.95+Math.random()*.1)*Math.pow(.93,gr-1),.045+.01*gr,{type:ty,vol:.018+.004*gr,slide:.55,lp:ty==='sawtooth'?1800:0})},
     tap:()=>tone(N(19),.06,{type:'triangle',vol:.12}),
-    summon:()=>{tone(N(12),.1,{type:'triangle',vol:.2});tone(N(19),.16,{type:'triangle',vol:.2,delay:.06});noise(.15,{f:4000,vol:.05,delay:.02})},
-    merge:gr=>{const b=7+gr*2;[0,4,7].forEach((s,i)=>tone(N(b+s),.2,{type:'triangle',vol:.18,delay:i*.055}))},
-    big:gr=>{[0,4,7,12].forEach((s,i)=>tone(N(12+s),.32,{type:'square',vol:.09,delay:i*.08}));tone(N(36),.6,{vol:.12,delay:.32});noise(.5,{f:6000,vol:.05,delay:.3})},
-    shoot:()=>tone(700+Math.random()*300,.05,{type:'square',vol:.025,slide:.55}),
+    summon:(t,gr)=>{noise(.2,{f:4500,q:2,vol:.06});tone(N(24),.08,{type:'triangle',vol:.08});setTimeout(()=>voice(t,gr),70)},
+    merge:gr=>{const b=7+gr*2;[0,4,7].forEach((s,i)=>tone(N(b+s),.14,{type:'triangle',vol:.12,delay:i*.045}));noise(.25,{f:5000,q:2,vol:.05})},
     kill:()=>{tone(N(28),.06,{type:'square',vol:.05});tone(N(35),.1,{type:'square',vol:.05,delay:.05})},
     bossDown:()=>{noise(.6,{f:300,fs:80,vol:.35,ft:'lowpass'});[0,4,7,12,16].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:.15+i*.09}))},
     coin:()=>{tone(N(31),.07,{type:'square',vol:.06});tone(N(36),.14,{type:'square',vol:.06,delay:.06})},
@@ -369,7 +408,7 @@ const SFX=(()=>{
     clear:()=>[[0,.0],[4,.12],[7,.24],[12,.36],[7,.52],[12,.64]].forEach(([s,d],i)=>tone(N(12+s),i>4?.6:.2,{type:'triangle',vol:.17,delay:d})),
     over:()=>[7,3,0,-5].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:i*.22,slide:i===3?.7:1}))
   };
-  const GAP={shoot:75,kill:40,coin:60,tap:40,no:150};
+  const GAP={shoot:75,kill:40,coin:60,tap:40,no:150,voice:60};
   return{
     play(n,...a){if(!on)return;const now=performance.now();if(GAP[n]&&now-(last[n]||0)<GAP[n])return;last[n]=now;if(!ctx())return;try{S[n](...a)}catch(e){}},
     unlock(){if(on)ctx()},
@@ -453,8 +492,8 @@ function summon(){
   const c=costOf();if(g.gold<c){SFX.play('no');return toast(`엽전이 부족해요 (${c}냥 필요)`)}
   const empty=g.board.map((u,i)=>u?-1:i).filter(i=>i>=0);
   if(!empty.length){SFX.play('no');return toast('제단이 가득 찼어요. 합성하거나 판매하세요')}
-  SFX.play('summon');
   const i=empty[Math.floor(Math.random()*empty.length)],t=g.unlocked[Math.floor(Math.random()*g.unlocked.length)],gr=Math.random()<.06?2:1;
+  SFX.play('summon',t,gr);
   g.board[i]={t,g:gr,cd:rnd(.1,.5),pulse:0,pop:1,ph:Math.random()*6};g.gold-=c;g.summons++;
   const p=cellXY(i);addFx({k:'ring',x:p.x,y:p.y,c:TYPES[t].c,life:.45,r0:10,r1:46});
   if(gr>1)toast(`행운! ${TYPES[t].n} 꼬마가 나왔어요`);
@@ -479,7 +518,7 @@ function pickTarget(u,list){
 }
 function behind(e,list){let b=null;for(const o of list)if(o!==e&&!o.dead&&o.d<e.d&&(!b||o.d>b.d))b=o;return b}
 function shoot(u,i,e,list){
-  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);SFX.play('shoot');
+  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);SFX.play('shoot',u.t,u.g);
   if(T.k==='monkey'){
     const hits=[e],n=2+Math.floor((u.g+1)/2);let cur=e;
     while(hits.length<n){const p=posAt(cur.d);let nb=null,nd=130;
@@ -586,7 +625,7 @@ function pickHints(){
 }
 function togglePick(t){
   const p=picking,i=p.sel.indexOf(t);
-  if(i>=0)p.sel.splice(i,1);else{if(p.max===1)p.sel=[t];else if(p.sel.length<p.max)p.sel.push(t);else return toast(`${p.max}마리까지 고를 수 있어요`)}
+  if(i>=0)p.sel.splice(i,1);else{if(p.max===1)p.sel=[t];else if(p.sel.length<p.max)p.sel.push(t);else{SFX.play('no');return toast(`${p.max}마리까지 고를 수 있어요`)}SFX.play('voice',t,1)}
   pickHints();
   const ok=p.sel.length===p.max,btn=$(p.mode==='start'?'pickGo':'nextSt');btn.disabled=!ok;
   btn.textContent=ok?(p.mode==='start'?'이 넷으로 모험 떠나기':`${TYPES[p.sel[0]].n} 깨우고 다음 장으로`):(p.mode==='start'?`${p.sel.length}/${START_PICK} 골랐어요`:'띠를 골라 주세요');
@@ -1018,14 +1057,14 @@ cv.addEventListener('pointerdown',e=>{
 cv.addEventListener('pointermove',e=>{if(!drag)return;const p=lp(e);drag.x=p.x;drag.y=p.y;if(Math.hypot(p.x-drag.sx,p.y-drag.sy)>8)drag.moved=true});
 cv.addEventListener('pointerup',()=>{
   if(!drag)return;const d=drag;drag=null;const u=g.board[d.i];if(!u)return;
-  if(!d.moved){sel=sel===d.i?-1:d.i;return}
+  if(!d.moved){sel=sel===d.i?-1:d.i;if(sel>=0)SFX.play('voice',u.t,u.g,true);return}
   sel=-1;
   if(inSell(d.x,d.y)){const v=sellOf(u);g.board[d.i]=null;g.gold+=v;SFX.play('coin');addFx({k:'txt',x:d.x,y:d.y+40,s:`+${v}냥`,c:'#f2c14e',life:.9});toast(`${TYPES[u.t].n} ${GRADE[u.g]} 판매 +${v}냥`);return hud()}
   const j=cellAt(d.x,d.y);if(j<0||j===d.i)return;
   const v=g.board[j];
   if(v&&v.t===u.t&&v.g===u.g&&u.g<MAXG){
     g.board[j]={t:u.t,g:u.g+1,cd:.2,pulse:0,pop:1,ph:v.ph};g.board[d.i]=null;sel=j;
-    SFX.play(u.g+1>=5?'big':'merge',u.g+1);
+    SFX.play('merge',u.g+1);SFX.play('voice',u.t,u.g+1);
     const c=cellXY(j);addFx({k:'merge',x:c.x,y:c.y,life:.45});addFx({k:'ring',x:c.x,y:c.y,c:GCOL[u.g+1],life:.5,r0:20,r1:70});
     if(u.g+1>=5)banner(`${TYPES[u.t].n} ${GRADE[u.g+1]} 등장!`);else toast(`${TYPES[u.t].n} ${GRADE[u.g+1]}(${u.g+1}성)! 이제 «${ANIM[TYPES[u.t].k].names[u.g]}»`);
   }else{g.board[j]=u;g.board[d.i]=v}
@@ -1052,7 +1091,7 @@ function renderUps(){
   hudCache={};
 }
 $('ups').addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(!b||g.state==='story'||g.over)return;const t=+b.dataset.t,c=upCost(t);
-  if(!g.unlocked.includes(t)||g.lv[t]>=10)return;if(g.gold<c){SFX.play('no');return toast(`엽전이 부족해요 (${c}냥 필요)`)}g.gold-=c;g.lv[t]++;SFX.play('up');toast(`${TYPES[t].n} Lv.${g.lv[t]} · 피해 +${(g.lv[t]-1)*20}%`);hud()});
+  if(!g.unlocked.includes(t)||g.lv[t]>=10)return;if(g.gold<c){SFX.play('no');return toast(`엽전이 부족해요 (${c}냥 필요)`)}g.gold-=c;g.lv[t]++;SFX.play('up');SFX.play('voice',t,Math.min(7,Math.ceil(g.lv[t]*.7)));toast(`${TYPES[t].n} Lv.${g.lv[t]} · 피해 +${(g.lv[t]-1)*20}%`);hud()});
 function set(id,v,prop){const key=id+(prop||'');if(hudCache[key]===v)return;hudCache[key]=v;const el=$(id);if(!el)return;if(prop)el[prop]=v;else el.textContent=v}
 function hud(force){
   if(force)hudCache={};
@@ -1172,7 +1211,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)saveNow()})
 addEventListener('pagehide',saveNow);
 $('cardIn').addEventListener('click',e=>{
   const id=e.target.id;
-  if(e.target.closest('button'))SFX.play('tap');
+  if(e.target.closest('button')&&!e.target.closest('.pk'))SFX.play('tap');
   const pk=e.target.closest('.pk');if(pk&&picking)return togglePick(+pk.dataset.t);
   if(id==='toPro')prologue();
   if(id==='toSt')pickStart();
