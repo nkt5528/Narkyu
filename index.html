@@ -391,11 +391,12 @@ const SFX=(()=>{
   }
   const S={
     voice,
-    shoot:(t,gr)=>{const[ty,f]=SHOT[t]||SHOT[0];tone(f*(.95+Math.random()*.1)*Math.pow(.93,gr-1),.045+.01*gr,{type:ty,vol:.018+.004*gr,slide:.55,lp:ty==='sawtooth'?1800:0})},
-    tap:()=>tone(N(19),.06,{type:'triangle',vol:.12}),
-    summon:(t,gr)=>{noise(.2,{f:4500,q:2,vol:.06});tone(N(24),.08,{type:'triangle',vol:.08});setTimeout(()=>voice(t,gr),70)},
+    /* no sound per shot (it chattered nonstop); only big attacks (5-star and up) land with a soft thud in the animal's pitch */
+    boom:(t,gr)=>{noise(.22,{ft:'lowpass',f:600,fs:120,vol:.1+.02*(gr-5)});tone((SHOT[t]||SHOT[0])[1]*.25*Math.pow(.93,gr-1)+40,.18,{vol:.1,slide:.5})},
+    tap:()=>noise(.035,{f:1800,q:2,vol:.07}),
+    summon:(t,gr)=>{noise(.2,{f:4500,q:2,vol:.06});setTimeout(()=>voice(t,gr),60)},
     merge:gr=>{const b=7+gr*2;[0,4,7].forEach((s,i)=>tone(N(b+s),.14,{type:'triangle',vol:.12,delay:i*.045}));noise(.25,{f:5000,q:2,vol:.05})},
-    kill:()=>{tone(N(28),.06,{type:'square',vol:.05});tone(N(35),.1,{type:'square',vol:.05,delay:.05})},
+    kill:()=>noise(.06,{f:900,q:1.5,vol:.06}),
     bossDown:()=>{noise(.6,{f:300,fs:80,vol:.35,ft:'lowpass'});[0,4,7,12,16].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:.15+i*.09}))},
     coin:()=>{tone(N(31),.07,{type:'square',vol:.06});tone(N(36),.14,{type:'square',vol:.06,delay:.06})},
     up:()=>{tone(N(12),.25,{type:'triangle',vol:.18,slide:2});tone(N(24),.18,{vol:.12,delay:.18})},
@@ -408,7 +409,7 @@ const SFX=(()=>{
     clear:()=>[[0,.0],[4,.12],[7,.24],[12,.36],[7,.52],[12,.64]].forEach(([s,d],i)=>tone(N(12+s),i>4?.6:.2,{type:'triangle',vol:.17,delay:d})),
     over:()=>[7,3,0,-5].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:i*.22,slide:i===3?.7:1}))
   };
-  const GAP={shoot:75,kill:40,coin:60,tap:40,no:150,voice:60};
+  const GAP={boom:450,kill:140,coin:60,tap:40,no:150,voice:60};
   return{
     play(n,...a){if(!on)return;const now=performance.now();if(GAP[n]&&now-(last[n]||0)<GAP[n])return;last[n]=now;if(!ctx())return;try{S[n](...a)}catch(e){}},
     unlock(){if(on)ctx()},
@@ -518,7 +519,7 @@ function pickTarget(u,list){
 }
 function behind(e,list){let b=null;for(const o of list)if(o!==e&&!o.dead&&o.d<e.d&&(!b||o.d>b.d))b=o;return b}
 function shoot(u,i,e,list){
-  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);SFX.play('shoot',u.t,u.g);
+  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);
   if(T.k==='monkey'){
     const hits=[e],n=2+Math.floor((u.g+1)/2);let cur=e;
     while(hits.length<n){const p=posAt(cur.d);let nb=null,nd=130;
@@ -548,6 +549,7 @@ let shoutT=0,ouchT=0;
 function shout(u,c){if(g.t-shoutT<.9||Math.random()>.07)return;shoutT=g.t;const s=ANIM[TYPES[u.t].k].shout;addFx({k:'say',x:c.x,y:c.y-40,s:s[Math.floor(Math.random()*s.length)],life:1.1})}
 function ouch(e,s){if(g.t-ouchT<.5)return;ouchT=g.t;const q=posAt(e.d),o=OUCH[e.kind];addFx({k:'txt',x:q.x,y:q.y-e.r-14,s:s||o[Math.floor(Math.random()*o.length)],c:'#ffe8e0',life:.8})}
 function impact(p){
+  if(p.gr>=5)SFX.play('boom',p.ti,p.gr);
   if(p.mode==='boom')addFx({k:'ret',x:p.x,y:p.y,ux:p.sx,uy:p.sy,ak:p.ak,life:.35});
   else if(p.mode==='cannon')addFx({k:'ring',x:p.x,y:p.y,c:'#ffd27a',life:.3,r0:6,r1:34});
   else if(p.mode==='rocket'){addFx({k:'ring',x:p.x,y:p.y,c:'#ff8a3d',life:.3,r0:6,r1:30});addFx({k:'puff',x:p.x,y:p.y,life:.4})}
