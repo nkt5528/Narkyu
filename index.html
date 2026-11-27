@@ -161,6 +161,7 @@ button{touch-action:manipulation}
       <button id="speed" aria-label="게임 속도">1배속</button>
       <button id="pause">일시정지</button>
       <button id="restart">새 모험</button>
+      <button id="snd" aria-label="효과음 끄기" aria-pressed="true">🔊</button>
     </div>
     <button class="upbtn" id="upOpen" aria-haspopup="dialog">⬆ 띠 강화 <span class="upn" id="upN"></span></button>
   </div>
@@ -332,6 +333,52 @@ let g,speed=1,best={st:0,w:0},drag=null,sel=-1,hudCache={},floorTex=null;
 try{best=JSON.parse(localStorage.getItem('zodiac_adv')||'null')||best}catch(e){}
 function rnd(a,b){return a+Math.random()*(b-a)}
 const stg=()=>g.stage<STAGES.length?STAGES[g.stage]:ENDLESS;
+/* ---------- sound effects: synthesized with Web Audio, no files to download ---------- */
+const SFX=(()=>{
+  let ac=null,out=null,noiseBuf=null,on=true;const last={};
+  try{on=localStorage.getItem('zodiac_snd')!=='off'}catch(e){}
+  function ctx(){
+    if(!ac){const A=window.AudioContext||window.webkitAudioContext;if(!A)return null;ac=new A();
+      out=ac.createDynamicsCompressor();out.connect(ac.destination);
+      noiseBuf=ac.createBuffer(1,ac.sampleRate*.5,ac.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}
+    if(ac.state==='suspended')ac.resume();return ac}
+  function tone(f,dur,o={}){const t=ac.currentTime+(o.delay||0),os=ac.createOscillator(),gn=ac.createGain();
+    os.type=o.type||'sine';os.frequency.setValueAtTime(f,t);if(o.slide)os.frequency.exponentialRampToValueAtTime(Math.max(30,f*o.slide),t+dur);
+    gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(o.vol||.2,t+(o.att||.006));gn.gain.exponentialRampToValueAtTime(.0008,t+dur);
+    os.connect(gn).connect(out);os.start(t);os.stop(t+dur+.03)}
+  function noise(dur,o={}){const t=ac.currentTime+(o.delay||0),s=ac.createBufferSource(),f=ac.createBiquadFilter(),gn=ac.createGain();
+    s.buffer=noiseBuf;f.type=o.ft||'bandpass';f.frequency.setValueAtTime(o.f||1200,t);if(o.fs)f.frequency.exponentialRampToValueAtTime(o.fs,t+dur);f.Q.value=o.q||1;
+    gn.gain.setValueAtTime(o.vol||.2,t);gn.gain.exponentialRampToValueAtTime(.0008,t+dur);s.connect(f).connect(gn).connect(out);s.start(t);s.stop(t+dur+.03)}
+  const N=s=>440*Math.pow(2,(s-9)/12);   // semitones from C4
+  const S={
+    tap:()=>tone(N(19),.06,{type:'triangle',vol:.12}),
+    summon:()=>{tone(N(12),.1,{type:'triangle',vol:.2});tone(N(19),.16,{type:'triangle',vol:.2,delay:.06});noise(.15,{f:4000,vol:.05,delay:.02})},
+    merge:gr=>{const b=7+gr*2;[0,4,7].forEach((s,i)=>tone(N(b+s),.2,{type:'triangle',vol:.18,delay:i*.055}))},
+    big:gr=>{[0,4,7,12].forEach((s,i)=>tone(N(12+s),.32,{type:'square',vol:.09,delay:i*.08}));tone(N(36),.6,{vol:.12,delay:.32});noise(.5,{f:6000,vol:.05,delay:.3})},
+    shoot:()=>tone(700+Math.random()*300,.05,{type:'square',vol:.025,slide:.55}),
+    kill:()=>{tone(N(28),.06,{type:'square',vol:.05});tone(N(35),.1,{type:'square',vol:.05,delay:.05})},
+    bossDown:()=>{noise(.6,{f:300,fs:80,vol:.35,ft:'lowpass'});[0,4,7,12,16].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:.15+i*.09}))},
+    coin:()=>{tone(N(31),.07,{type:'square',vol:.06});tone(N(36),.14,{type:'square',vol:.06,delay:.06})},
+    up:()=>{tone(N(12),.25,{type:'triangle',vol:.18,slide:2});tone(N(24),.18,{vol:.12,delay:.18})},
+    no:()=>tone(150,.16,{type:'sawtooth',vol:.07,slide:.8}),
+    leak:()=>{tone(180,.4,{type:'sawtooth',vol:.14,slide:.4});noise(.3,{f:400,vol:.2,ft:'lowpass'})},
+    wave:()=>{tone(130,.22,{vol:.35,slide:.45});tone(130,.22,{vol:.35,slide:.45,delay:.2});noise(.08,{f:2500,vol:.08,delay:.2})},
+    boss:()=>{tone(98,.9,{type:'sawtooth',vol:.12,slide:.7,att:.05});tone(104,.9,{type:'sawtooth',vol:.12,slide:.7,att:.05});[0,.3,.6].forEach(d=>tone(65,.25,{vol:.4,slide:.5,delay:d}))},
+    ok:()=>{tone(N(16),.14,{type:'triangle',vol:.14});tone(N(23),.22,{type:'triangle',vol:.14,delay:.09})},
+    trio:()=>[0,7,12,16,19].forEach((s,i)=>tone(N(16+s),.5,{vol:.1,delay:i*.07})),
+    clear:()=>[[0,.0],[4,.12],[7,.24],[12,.36],[7,.52],[12,.64]].forEach(([s,d],i)=>tone(N(12+s),i>4?.6:.2,{type:'triangle',vol:.17,delay:d})),
+    over:()=>[7,3,0,-5].forEach((s,i)=>tone(N(12+s),.35,{type:'triangle',vol:.16,delay:i*.22,slide:i===3?.7:1}))
+  };
+  const GAP={shoot:75,kill:40,coin:60,tap:40,no:150};
+  return{
+    play(n,...a){if(!on)return;const now=performance.now();if(GAP[n]&&now-(last[n]||0)<GAP[n])return;last[n]=now;if(!ctx())return;try{S[n](...a)}catch(e){}},
+    unlock(){if(on)ctx()},
+    get on(){return on},
+    toggle(){on=!on;try{localStorage.setItem('zodiac_snd',on?'on':'off')}catch(e){}if(on)this.play('tap');return on}
+  };
+})();
+/* browsers only allow audio after a touch or click */
+addEventListener('pointerdown',()=>SFX.unlock(),{capture:true});
 const mult=u=>Math.pow(1.95,u.g-1)*(1+0.2*(g.lv[u.t]-1));
 const dmgOf=(u,i)=>TYPES[u.t].dmg*mult(u)*(i>=0&&g.sd?g.sd[i]:1);
 const intOf=(u,i)=>TYPES[u.t].int*Math.pow(0.93,u.g-1)/(1+(g.buf[i]||0))/(g.ss?g.ss[i]:1);
@@ -352,7 +399,7 @@ const trioOf=t=>TRIO.findIndex(T=>T.m.includes(t));
 const names=l=>l.map(t=>TYPES[t].n).join('·');
 function synergy(){
   const on=new Set(g.board.filter(Boolean).map(u=>u.t)),tri=TRIO.map(T=>T.m.every(t=>on.has(t)));
-  tri.forEach((a,k)=>{if(a&&!g.tri[k]){const T=TRIO[k];banner(`삼합 · ${T.n} 발동!`);toast(`${T.h} ${names(T.m)} 모였다! ${T.d}`)}});
+  tri.forEach((a,k)=>{if(a&&!g.tri[k]){const T=TRIO[k];banner(`삼합 · ${T.n} 발동!`);SFX.play('trio');toast(`${T.h} ${names(T.m)} 모였다! ${T.d}`)}});
   g.tri=tri;const hp=Array(NC).fill(false),cl=Array(NC).fill(false);g.links=[];
   for(let i=0;i<NC;i++){const u=g.board[i];if(!u)continue;
     for(const j of[i%COLS<COLS-1?i+1:-1,i+COLS<NC?i+COLS:-1]){const v=j>=0&&g.board[j];if(!v)continue;
@@ -394,7 +441,7 @@ function buildWave(n){
 }
 function startWave(){
   g.wave++;g.sw++;g.queue=buildWave(g.wave);g.state='wave';g.spawnT=0;
-  const boss=g.sw===WPS;banner(boss?`${BOSS[bossKey()].n} 출현!`:`웨이브 ${g.sw}`,boss);
+  const boss=g.sw===WPS;banner(boss?`${BOSS[bossKey()].n} 출현!`:`웨이브 ${g.sw}`,boss);SFX.play(boss?'boss':'wave');
 }
 function banner(t,boss){const b=$('banner');b.textContent=t;b.className='banner show'+(boss?' boss':'');clearTimeout(banner.h);banner.h=setTimeout(()=>b.className='banner'+(boss?' boss':''),1600)}
 function toast(t){const el=$('toast');el.textContent=t;el.className='toast show';clearTimeout(toast.h);toast.h=setTimeout(()=>el.className='toast',2300)}
@@ -403,9 +450,10 @@ function saveBest(){const st=g.stage,w=g.sw;if(st>best.st||(st===best.st&&w>best
 
 function summon(){
   if(g.state==='story'||g.over)return;
-  const c=costOf();if(g.gold<c)return toast(`엽전이 부족해요 (${c}냥 필요)`);
+  const c=costOf();if(g.gold<c){SFX.play('no');return toast(`엽전이 부족해요 (${c}냥 필요)`)}
   const empty=g.board.map((u,i)=>u?-1:i).filter(i=>i>=0);
-  if(!empty.length)return toast('제단이 가득 찼어요. 합성하거나 판매하세요');
+  if(!empty.length){SFX.play('no');return toast('제단이 가득 찼어요. 합성하거나 판매하세요')}
+  SFX.play('summon');
   const i=empty[Math.floor(Math.random()*empty.length)],t=g.unlocked[Math.floor(Math.random()*g.unlocked.length)],gr=Math.random()<.06?2:1;
   g.board[i]={t,g:gr,cd:rnd(.1,.5),pulse:0,pop:1,ph:Math.random()*6};g.gold-=c;g.summons++;
   const p=cellXY(i);addFx({k:'ring',x:p.x,y:p.y,c:TYPES[t].c,life:.45,r0:10,r1:46});
@@ -417,7 +465,7 @@ function kill(e){
   if(e.dead)return;e.dead=true;const rw=g.tri[2]?Math.round(e.reward*1.4):e.reward;g.gold+=rw;g.kills++;const p=posAt(e.d);
   addFx({k:'txt',x:p.x,y:p.y-e.r,s:`+${rw}`,c:'#f2c14e',life:.9});
   for(let i=0;i<(e.kind==='boss'?28:8);i++){const a=Math.random()*7,v=rnd(40,150);addFx({k:'pt',x:p.x,y:p.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,c:e.kind==='boss'?'#f2c14e':'#c9b27a',life:rnd(.3,.7)})}
-  if(e.kind==='boss')banner(`${BOSS[e.bk].n} 격파!`);
+  if(e.kind==='boss'){banner(`${BOSS[e.bk].n} 격파!`);SFX.play('bossDown')}else SFX.play('kill');
 }
 const immune=e=>e.kind==='raccoon'||e.bk==='raccoonK';
 function pickTarget(u,list){
@@ -431,7 +479,7 @@ function pickTarget(u,list){
 }
 function behind(e,list){let b=null;for(const o of list)if(o!==e&&!o.dead&&o.d<e.d&&(!b||o.d>b.d))b=o;return b}
 function shoot(u,i,e,list){
-  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);
+  const c=cellXY(i),T=TYPES[u.t];let dmg=dmgOf(u,i);SFX.play('shoot');
   if(T.k==='monkey'){
     const hits=[e],n=2+Math.floor((u.g+1)/2);let cur=e;
     while(hits.length<n){const p=posAt(cur.d);let nb=null,nd=130;
@@ -491,14 +539,19 @@ function waveCleared(){
   if(g.sw>=WPS){
     if(g.stage<STAGES.length)return stageClear();
     g.sw=0;route=genRoute(ENDLESS.T[0],ENDLESS.T[1]);toast(`수련 ${Math.floor(g.wave/WPS)}회차 완료! 새 길이 열렸어요`);
-  }else toast(`웨이브 ${g.sw} 방어 성공! +${b}냥`);
-  g.state='wait';g.timer=7;
+  }else{toast(`웨이브 ${g.sw} 방어 성공! +${b}냥`);SFX.play('ok')}
+  g.state='wait';g.timer=7;saveGame('play');
 }
 function stageClear(){
-  const s=STAGES[g.stage];g.state='story';
-  const heal=Math.min(5,20-g.lives);g.lives+=heal;const bonus=60+30*g.stage;g.gold+=bonus;
+  g.state='story';
+  const heal=Math.min(5,20-g.lives);g.lives+=heal;const bonus=60+30*g.stage;g.gold+=bonus;g.clr={heal,bonus};
+  if(g.stage===STAGES.length-1){best={st:STAGES.length,w:0};try{localStorage.setItem('zodiac_adv',JSON.stringify(best))}catch(e){}}
+  setTimeout(()=>SFX.play('clear'),700);saveGame('clear');clearCard();
+}
+/* the chapter-clear card; also shown again when a saved game is continued at this point */
+function clearCard(){
+  const s=STAGES[g.stage],{heal,bonus}=g.clr||{heal:0,bonus:0};
   if(g.stage===STAGES.length-1){
-    best={st:STAGES.length,w:0};try{localStorage.setItem('zodiac_adv',JSON.stringify(best))}catch(e){}
     card(`<div class="ch">에필로그</div><h2>시간의 신패를 되찾았어요!</h2><p class="story">${ENDING}</p>
       <p>총 ${g.wave}웨이브 · 물리친 적 ${g.kills}마리</p>
       <div class="row"><button class="primary" id="endless">무한 수련 계속하기</button><button id="again">새 모험</button></div>`);return;
@@ -569,7 +622,7 @@ function update(dt){
     if(e.slowT>0){e.slowT-=dt;if(e.slowT<=0)e.slow=0}
     if(e.psnT>0){e.psnT-=dt;damage(e,e.psn*dt);if(e.psnT<=0)e.psn=0}
     e.flash=Math.max(0,e.flash-dt);e.d+=e.spd*(1-e.slow)*(g.tri[3]?.88:1)*dt;
-    if(!e.dead&&e.d>=route.L){e.dead=true;g.lives=Math.max(0,g.lives-e.leak);g.shake=.35;addFx({k:'leak',life:.4})}
+    if(!e.dead&&e.d>=route.L){e.dead=true;g.lives=Math.max(0,g.lives-e.leak);g.shake=.35;addFx({k:'leak',life:.4});SFX.play('leak')}
   }
   g.enemies=g.enemies.filter(e=>!e.dead);
   g.buf.fill(0);
@@ -967,11 +1020,12 @@ cv.addEventListener('pointerup',()=>{
   if(!drag)return;const d=drag;drag=null;const u=g.board[d.i];if(!u)return;
   if(!d.moved){sel=sel===d.i?-1:d.i;return}
   sel=-1;
-  if(inSell(d.x,d.y)){const v=sellOf(u);g.board[d.i]=null;g.gold+=v;addFx({k:'txt',x:d.x,y:d.y+40,s:`+${v}냥`,c:'#f2c14e',life:.9});toast(`${TYPES[u.t].n} ${GRADE[u.g]} 판매 +${v}냥`);return hud()}
+  if(inSell(d.x,d.y)){const v=sellOf(u);g.board[d.i]=null;g.gold+=v;SFX.play('coin');addFx({k:'txt',x:d.x,y:d.y+40,s:`+${v}냥`,c:'#f2c14e',life:.9});toast(`${TYPES[u.t].n} ${GRADE[u.g]} 판매 +${v}냥`);return hud()}
   const j=cellAt(d.x,d.y);if(j<0||j===d.i)return;
   const v=g.board[j];
   if(v&&v.t===u.t&&v.g===u.g&&u.g<MAXG){
     g.board[j]={t:u.t,g:u.g+1,cd:.2,pulse:0,pop:1,ph:v.ph};g.board[d.i]=null;sel=j;
+    SFX.play(u.g+1>=5?'big':'merge',u.g+1);
     const c=cellXY(j);addFx({k:'merge',x:c.x,y:c.y,life:.45});addFx({k:'ring',x:c.x,y:c.y,c:GCOL[u.g+1],life:.5,r0:20,r1:70});
     if(u.g+1>=5)banner(`${TYPES[u.t].n} ${GRADE[u.g+1]} 등장!`);else toast(`${TYPES[u.t].n} ${GRADE[u.g+1]}(${u.g+1}성)! 이제 «${ANIM[TYPES[u.t].k].names[u.g]}»`);
   }else{g.board[j]=u;g.board[d.i]=v}
@@ -998,7 +1052,7 @@ function renderUps(){
   hudCache={};
 }
 $('ups').addEventListener('click',e=>{const b=e.target.closest('button[data-t]');if(!b||g.state==='story'||g.over)return;const t=+b.dataset.t,c=upCost(t);
-  if(!g.unlocked.includes(t)||g.lv[t]>=10)return;if(g.gold<c)return toast(`엽전이 부족해요 (${c}냥 필요)`);g.gold-=c;g.lv[t]++;toast(`${TYPES[t].n} Lv.${g.lv[t]} · 피해 +${(g.lv[t]-1)*20}%`);hud()});
+  if(!g.unlocked.includes(t)||g.lv[t]>=10)return;if(g.gold<c){SFX.play('no');return toast(`엽전이 부족해요 (${c}냥 필요)`)}g.gold-=c;g.lv[t]++;SFX.play('up');toast(`${TYPES[t].n} Lv.${g.lv[t]} · 피해 +${(g.lv[t]-1)*20}%`);hud()});
 function set(id,v,prop){const key=id+(prop||'');if(hudCache[key]===v)return;hudCache[key]=v;const el=$(id);if(!el)return;if(prop)el[prop]=v;else el.textContent=v}
 function hud(force){
   if(force)hudCache={};
@@ -1064,10 +1118,12 @@ function titleScene(){
     if(!still)requestAnimationFrame(fr)}
   requestAnimationFrame(fr);return c}
 function intro(){
-  const bt=best.st>=STAGES.length?'최고 기록 · 흑묘 대왕 격파':best.st||best.w?`최고 기록 · ${best.st+1}장 ${STAGES[best.st].n} 웨이브 ${best.w}`:'';
+  const sv=loadSave(),bt=best.st>=STAGES.length?'최고 기록 · 흑묘 대왕 격파':best.st||best.w?`최고 기록 · ${best.st+1}장 ${STAGES[best.st].n} 웨이브 ${best.w}`:'';
   card(`<div class="tbox" id="titleBox"></div><h2 class="ttl">열두간지 <span>수호대</span></h2>
   <p class="tag">달밤에 사라진 십이지 신패.<br>열두 띠가 다시 달린다!</p>
-  <button class="primary big" id="toPro">모험 떠나기</button>${bt?`<p class="best">${bt}</p>`:''}`);
+  ${sv?`<button class="primary big" id="cont">이어하기</button><p class="best">${saveLabel(sv)}</p>
+  <button id="toPro">처음부터 새 모험</button><p class="best">처음부터 하면 저장된 모험은 덮어써져요</p>`
+  :'<button class="primary big" id="toPro">모험 떠나기</button>'}${bt?`<p class="best">${bt}</p>`:''}`);
   $('titleBox').appendChild(titleScene());
 }
 function prologue(){
@@ -1080,23 +1136,53 @@ function gameOver(){
   const top=g.board.filter(Boolean).reduce((a,u)=>!a||u.g>a.g?u:a,null),s=stg();
   card(`<div class="ch">${g.stage<STAGES.length?`${g.stage+1}장 · ${s.n}`:'무한 수련'}</div><h2>신단의 결계가 깨졌어요</h2><p>웨이브 ${g.sw}에서 쓰러졌어요 · 물리친 적 ${g.kills}마리${top?` · 최강 띠 ${TYPES[top.t].n} ${GRADE[top.g]}`:''}</p>
   <div class="row">${g.stage<STAGES.length?'<button class="primary" id="retry">이 장 다시 도전</button>':''}<button id="again">새 모험</button></div>`);
-  hud();
+  hud();SFX.play('over');
+  /* a defeat is saved as "this chapter, from the start" so closing the app here does not undo the loss */
+  if(snap&&g.stage<STAGES.length){const s=JSON.parse(snap);s.lives=Math.max(s.lives,10);
+    try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,phase:'intro',at:Date.now(),snap,g:{...s,sw:0,stage:g.stage,clr:null},tiles:[]}))}catch(e){}}
+  else clearSave();
 }
 /* retry: restore snapshot taken at chapter start */
 let snap=null;
 function takeSnap(){snap=JSON.stringify({gold:g.gold,lives:g.lives,wave:g.wave,board:g.board,summons:g.summons,lv:g.lv,unlocked:g.unlocked,kills:g.kills})}
-function retry(){const s=JSON.parse(snap);Object.assign(g,s,{sw:0,over:false,state:'story',enemies:[],queue:[],proj:[],fx:[],paused:false});g.lives=Math.max(g.lives,10);enterStage();renderUps();stageIntro()}
+function retry(){const s=JSON.parse(snap);Object.assign(g,s,{sw:0,over:false,state:'story',enemies:[],queue:[],proj:[],fx:[],paused:false});g.lives=Math.max(g.lives,10);enterStage();renderUps();stageIntro();saveGame('intro')}
+/* ---------- save / continue (this device only) ----------
+   saved between waves, at chapter start and at chapter clear; a game closed mid-wave continues from just before that wave */
+const SAVE_KEY='zodiac_save';
+function saveGame(phase){
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,phase,at:Date.now(),snap,
+    g:{gold:g.gold,lives:g.lives,wave:g.wave,sw:g.sw,stage:g.stage,board:g.board,summons:g.summons,lv:g.lv,unlocked:g.unlocked,kills:g.kills,clr:g.clr||null},
+    tiles:route.tiles}))}catch(e){}
+}
+function loadSave(){try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');return s&&s.v===1&&s.g?s:null}catch(e){return null}}
+function clearSave(){try{localStorage.removeItem(SAVE_KEY)}catch(e){}}
+function saveLabel(s){const G=s.g,end=G.stage>=STAGES.length;
+  return(end?'무한 수련':`${G.stage+1}장 ${STAGES[G.stage].n}`)+(s.phase==='play'?(G.sw?` · 웨이브 ${G.sw}${end?'':'/'+WPS} 방어 후`:' · 시작'):s.phase==='clear'?' · 클리어':' · 시작 전')+` · 합류한 띠 ${G.unlocked.length}`}
+function continueGame(){
+  const s=loadSave();if(!s)return;newGame();Object.assign(g,s.g);snap=s.snap;
+  floorTex=makeFloor(stg());try{route=s.tiles&&s.tiles.length?buildRoute(s.tiles):genRoute(stg().T[0],stg().T[1])}catch(e){enterStage()}
+  renderUps();hud(true);
+  if(s.phase==='clear')return clearCard();
+  if(s.phase==='intro')return stageIntro();
+  closeCard();g.state='wait';g.timer=8;banner(g.stage<STAGES.length?`${g.stage+1}장 · 이어하기`:'무한 수련 · 이어하기');hud(true);
+}
+/* leaving the app between waves keeps the latest board, gold and upgrades */
+const saveNow=()=>{if(g&&g.state==='wait'&&!g.over)saveGame('play')};
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveNow()});
+addEventListener('pagehide',saveNow);
 $('cardIn').addEventListener('click',e=>{
   const id=e.target.id;
+  if(e.target.closest('button'))SFX.play('tap');
   const pk=e.target.closest('.pk');if(pk&&picking)return togglePick(+pk.dataset.t);
   if(id==='toPro')prologue();
   if(id==='toSt')pickStart();
-  if(id==='pickGo'){commitPick();stageIntro()}
-  if(id==='goSt'){closeCard();takeSnap();g.state='wait';g.timer=g.stage===0?10:8;banner(`${g.stage+1}장 · ${STAGES[g.stage].n}`);if(g.stage===0)toast('띠 소환 버튼(또는 스페이스바)으로 첫 동물을 뽑아 보세요');hud(true)}
-  if(id==='nextSt'){if(picking){if(picking.sel.length!==1)return;commitPick()}g.stage++;g.sw=0;enterStage();stageIntro()}
-  if(id==='endless'){g.stage=STAGES.length;g.sw=0;enterStage();closeCard();g.state='wait';g.timer=8;banner('무한 수련');hud(true)}
+  if(id==='cont')continueGame();
+  if(id==='pickGo'){commitPick();stageIntro();saveGame('intro')}
+  if(id==='goSt'){closeCard();takeSnap();g.state='wait';g.timer=g.stage===0?10:8;banner(`${g.stage+1}장 · ${STAGES[g.stage].n}`);if(g.stage===0)toast('띠 소환 버튼(또는 스페이스바)으로 첫 동물을 뽑아 보세요');hud(true);saveGame('play')}
+  if(id==='nextSt'){if(picking){if(picking.sel.length!==1)return;commitPick()}g.stage++;g.sw=0;g.clr=null;enterStage();stageIntro();saveGame('intro')}
+  if(id==='endless'){g.stage=STAGES.length;g.sw=0;enterStage();closeCard();g.state='wait';g.timer=8;banner('무한 수련');hud(true);saveGame('play')}
   if(id==='retry')retry();
-  if(id==='again'||id==='yes'){newGame();intro()}
+  if(id==='again'||id==='yes'){clearSave();newGame();intro()}
   if(id==='no'){closeCard();g.paused=false;hud()}
 });
 $('summon').addEventListener('click',summon);
@@ -1110,6 +1196,9 @@ function openUps(){if(g.state==='story'||g.over||document.body.classList.contain
   const st=$('stage'),r=st.getBoundingClientRect(),room=innerHeight-$('upSheet').offsetHeight;
   if(r.top<0||r.bottom>room)scrollTo({top:scrollY+r.top-Math.max(0,Math.min(8,room-r.height))})}
 function closeUps(){if(!document.body.classList.contains('upopen'))return;document.body.classList.remove('upopen');$('upOpen').focus()}
+function sndBtn(){const b=$('snd');b.textContent=SFX.on?'🔊':'🔇';b.setAttribute('aria-pressed',SFX.on);b.setAttribute('aria-label',SFX.on?'효과음 끄기':'효과음 켜기')}
+$('snd').addEventListener('click',()=>{SFX.toggle();sndBtn();toast(SFX.on?'효과음 켜짐':'효과음 꺼짐')});sndBtn();
+['speed','pause','restart','upOpen','upClose'].forEach(id=>$(id).addEventListener('click',()=>SFX.play('tap')));
 $('upOpen').addEventListener('click',openUps);
 $('upClose').addEventListener('click',closeUps);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')return closeUps();
